@@ -22,13 +22,14 @@ class Model:
         self.save_fname = self.load_fname
         self.save_scaler_fname = 'scaler.pkl'
 
-        self.color_space = 'RGB'  # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
-        self.orient = 9  # HOG orientations
-        self.pix_per_cell = 8  # HOG pixels per cell
+        self.image_size = (64, 64)
+        self.color_space = 'YUV'  # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
+        self.orient = 11  # HOG orientations
+        self.pix_per_cell = 16  # HOG pixels per cell
         self.cell_per_block = 2  # HOG cells per block
-        self.hog_channel = 0  # Can be 0, 1, 2, or "ALL"
-        self.spatial_size = (16, 16)  # Spatial binning dimensions
-        self.hist_bins = 16  # Number of histogram bins
+        self.hog_channel = "ALL"  # Can be 0, 1, 2, or "ALL"
+        self.spatial_size = (32, 32)  # Spatial binning dimensions
+        self.hist_bins = 32  # Number of histogram bins
         self.spatial_feat = True  # Spatial features on or off
         self.hist_feat = True  # Histogram features on or off
         self.hog_feat = True  # HOG features on or off
@@ -46,6 +47,7 @@ class Model:
         car_features = []
         for car_fname in cars:
             car = mpimg.imread(car_fname)
+            car = car.astype(np.float32) / 255
             car_features.append(ipu.single_img_features(car, color_space=self.color_space,
                                             spatial_size=self.spatial_size, hist_bins=self.hist_bins,
                                             orient=self.orient, pix_per_cell=self.pix_per_cell,
@@ -56,6 +58,7 @@ class Model:
         notcar_features = []
         for notcar_fname in notcars:
             notcar = mpimg.imread(notcar_fname)
+            notcar = notcar.astype(np.float32) / 255
             notcar_features.append(ipu.single_img_features(notcar, color_space=self.color_space,
                                                spatial_size=self.spatial_size, hist_bins=self.hist_bins,
                                                orient=self.orient, pix_per_cell=self.pix_per_cell,
@@ -85,8 +88,8 @@ class Model:
               'pixels per cell and', self.cell_per_block, 'cells per block')
         print('Feature vector length:', len(X_train[0]))
 
-        #    parameters = {'C': [0.00001, 0.0001, 0.001, 0.01, 0.1, 1]} # 0.001 is the best
-        parameters = {'C': [x / 1000.0 for x in range(1, 11, 1)]}
+        parameters = {'C': [0.001]} # 0.001 is the best
+        # parameters = {'C': [x / 1000.0 for x in range(1, 11, 1)]}
 
         # Use a linear SVC
         svc = LinearSVC(random_state=1)
@@ -137,6 +140,7 @@ if __name__ == '__main__':
         car_features = []
         for car_fname in cars:
             car = mpimg.imread(car_fname)
+            car = car.astype(np.float32) / 255
             car_features.append(ipu.single_img_features(car, color_space=model.color_space,
                                             spatial_size=model.spatial_size, hist_bins=model.hist_bins,
                                             orient=model.orient, pix_per_cell=model.pix_per_cell,
@@ -147,6 +151,7 @@ if __name__ == '__main__':
         notcar_features = []
         for notcar_fname in notcars:
             notcar = mpimg.imread(notcar_fname)
+            notcar = notcar.astype(np.float32) / 255
             notcar_features.append(ipu.single_img_features(notcar, color_space=model.color_space,
                                                spatial_size=model.spatial_size, hist_bins=model.hist_bins,
                                                orient=model.orient, pix_per_cell=model.pix_per_cell,

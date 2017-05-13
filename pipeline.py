@@ -7,6 +7,7 @@ import matplotlib.image as mpimg
 import pickle
 from moviepy.editor import VideoFileClip
 from collections import deque
+from scipy.ndimage.measurements import label
 
 import ImageProcessUtils
 import Model
@@ -19,39 +20,8 @@ class Pipeline:
         self.isfound = False
         self.img_deque = deque(maxlen=5)
 
-    # apply gradient using some method and combine them in one image
-    def gradient_image(self, img):
-        gradx = self.ipu.abs_sobel_thresh(img, orient='x', sobel_kernel=17, thresh_min=25, thresh_max=170)
-        grady = self.ipu.abs_sobel_thresh(img, orient='y', sobel_kernel=3, thresh_min=25, thresh_max=220)
-        mag_binary = self.ipu.mag_thresh(img, sobel_kernel=7, mag_thresh=(10, 130))
-        dir_binary = self.ipu.dir_threshold(img, sobel_kernel=11, thresh=(0.5, 1.4))
-
-        combined = np.zeros_like(dir_binary)
-        combined[((gradx == 1) | (grady == 1) | (mag_binary == 1)) & (dir_binary == 1)] = 1
-        return combined
-
-    # combine the signal of R and S with thresholds
-    def clearlify_image(self, img):
-        s_binary = self.ipu.hls_select(img, thresh=(80, 255), channel=2)
-        r_binary = self.ipu.rgb_select(img, thresh=(220, 250), channel=0)
-
-        combined = np.zeros_like(r_binary)
-        combined[((s_binary == 1) | (r_binary == 1))] = 1
-        return combined
-
-    # imput image is not warped
-    def mix_image_of_grad_clearlify(self, img):
-        grad = self.ipu.warp(self.gradient_image(img))
-        origin = self.clearlify_image(self.ipu.warp(img))
-
-        combined = np.zeros_like(grad)
-        combined[((grad > 0) | (origin == 1))] = 1
-        return combined
-
     # reset function clear the data of previous analysis
     def reset(self):
-        self.left_line.reset()
-        self.right_line.reset()
         self.isfound = False
         self.img_deque.clear()
 
@@ -61,27 +31,40 @@ class Pipeline:
         img = img.astype(np.uint8)
 
         # sliding window
-        windows = self.ipu.slide_window(img, x_start_stop=[None, None], y_start_stop=[None, None],
-                     xy_window=(96, 96), xy_overlap=(0.5, 0.5))
-        windowed_img = self.ipu.draw_boxes(img, windows, color=(0, 0, 255), thick=6)
+        xy_windows = [(32, 32), (64, 64), (96, 96), (128, 128)]
+        windows = []
+        for xy_window in xy_windows:
+            windows.extend(self.ipu.slide_window(img, x_start_stop=[None, None], y_start_stop=[400, 656],
+                         xy_window=xy_window, xy_overlap=(0.25, 0.25)))
 
         # ditect car with classifier and record the position of window
         svc = self.model.get_clf()
         X_scaler = self.model.get_scaler()
-        ystart = 400
-        ystop = 656
-        scale = 1.5
-        out_img = self.find_cars(img, ystart, ystop, scale, svc, X_scaler, self.model.orient, self.model.pix_per_cell,
-                                 self.model.cell_per_block, self.model.spatial_size, self.model.hist_bins)
-        plt.imshow(out_img)
-        plt.show()
+        car_windows = []
+        for window in windows:
+            cropped_img = img[window[0][1]:window[1][1], window[0][0]:window[1][0]]
+            cropped_img = cv2.resize(cropped_img, self.model.image_size)
+            cropped_img = cropped_img.astype(np.float32) / 255
+            features = self.ipu.single_img_features(cropped_img, color_space=self.model.color_space, spatial_size=self.model.spatial_size,
+                                hist_bins=self.model.hist_bins, orient=self.model.orient,
+                                pix_per_cell=self.model.pix_per_cell, cell_per_block=self.model.cell_per_block, hog_channel=self.model.hog_channel,
+                                spatial_feat=self.model.spatial_feat, hist_feat=self.model.hist_feat, hog_feat=self.model.hog_feat)
+            scaled_features = X_scaler.transform(features)
+            pred = svc.predict(scaled_features)
+            if pred == 1:
+                car_windows.append(window)
 
         # stitch windows to centeroid and filter out false positive with heatmap
+        heatmap = np.zeros_like(img[:, :, 0])
+        heat = self.ipu.add_heat(heatmap, car_windows)
+        self.ipu.apply_threshold(heat, 1)
+        labels = label(heatmap)
+        draw_img = self.ipu.draw_labeled_bboxes(img, labels)
 
         # filter out false positive in one frame, not in the next frame
 
-
-        return result
+        out_img = draw_img
+        return out_img
 
     # Define a single function that can extract features using hog sub-sampling and make predictions
     def find_cars(self, img, ystart, ystop, scale, svc, X_scaler, orient, pix_per_cell, cell_per_block, spatial_size,
@@ -184,11 +167,11 @@ class Pipeline:
 def main():
     pl = Pipeline()
 
-    do_images = True
-    do_videos = False
+    do_images = False
+    do_videos = True
 
     if do_images:
-        images = glob.glob('test_images/test1.jpg')
+        images = glob.glob('test_images/*.jpg')
 
         for fname in images:
             image = mpimg.imread(fname)

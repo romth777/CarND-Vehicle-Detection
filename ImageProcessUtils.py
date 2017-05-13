@@ -12,6 +12,9 @@ class ImageProcessUtils:
     def __init__(self):
         # image size for this project, this value must change in the other image shape
         self.img_size = (1280, 720)
+        self.hog1 = None
+        self.hog2 = None
+        self.hog3 = None
 
     # Define a function to compute binned color features
     def bin_spatial(self, img, size=(32, 32)):
@@ -57,7 +60,7 @@ class ImageProcessUtils:
 
     def single_img_features(self, img, color_space='RGB', spatial_size=(32, 32),
                             hist_bins=32, orient=9,
-                            pix_per_cell=8, cell_per_block=2, hog_channel=0,
+                            pix_per_cell=8, cell_per_block=2, hog_channel="ALL",
                             spatial_feat=True, hist_feat=True, hog_feat=True):
         # 1) Define an empty list to receive features
         img_features = []
@@ -210,6 +213,37 @@ class ImageProcessUtils:
             cv2.rectangle(imcopy, bbox[0], bbox[1], color, thick)
         # Return the image copy with boxes drawn
         return imcopy
+
+    def add_heat(self, heatmap, bbox_list):
+        # Iterate through list of bboxes
+        for box in bbox_list:
+            # Add += 1 for all pixels inside each bbox
+            # Assuming each "box" takes the form ((x1, y1), (x2, y2))
+            heatmap[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+
+        # Return updated heatmap
+        return heatmap
+
+    def apply_threshold(self, heatmap, threshold):
+        # Zero out pixels below the threshold
+        heatmap[heatmap <= threshold] = 0
+        # Return thresholded map
+        return heatmap
+
+    def draw_labeled_bboxes(self, img, labels):
+        # Iterate through all detected cars
+        for car_number in range(1, labels[1] + 1):
+            # Find pixels with each car_number label value
+            nonzero = (labels[0] == car_number).nonzero()
+            # Identify x and y values of those pixels
+            nonzeroy = np.array(nonzero[0])
+            nonzerox = np.array(nonzero[1])
+            # Define a bounding box based on min/max x and y
+            bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
+            # Draw the box on the image
+            cv2.rectangle(img, bbox[0], bbox[1], (0, 0, 255), 6)
+        # Return the image
+        return img
 
     def hls_select(self, img, thresh=(0, 255), channel=2):
         """Return a channel from HLS"""
