@@ -10,19 +10,49 @@ from scipy.ndimage.measurements import label
 
 import ImageProcessUtils
 import Model
+from KittiBox import annotate
 
 
 class Pipeline:
     def __init__(self):
         self.ipu = ImageProcessUtils.ImageProcessUtils()
-        self.model = Model.Model()
+        self.do_svc = False
+        self.do_kb = True
+        self.model = None
+        self.annotate = None
+        if self.do_svc:
+            self.model = Model.Model()
+        if self.do_kb:
+            self.annotate = annotate.annotate()
 
     # reset function clear the data of previous analysis
     def reset(self):
         pass
 
     # Main pipeline process of this project
-    def pipeline(self, img):
+    def pipeline_kb(self, img):
+        # convert dtype for uint8 for processing
+        img = img.astype(np.uint8)
+
+        # apply kittibox
+        out_img, pred_boxes = self.annotate.make_annotate(img, threshold=0.5)
+
+        # windowed_img = self.ipu.draw_boxes(img, pred_boxes, color=(0, 0, 255), thick=6)
+        # plt.imshow(windowed_img)
+        # plt.show()
+
+        # stitch windows to centeroid and filter out false positive with heatmap
+        heatmap = np.zeros_like(img[:, :, 0])
+        heat = self.ipu.add_heat(heatmap, pred_boxes)
+        self.ipu.apply_threshold(heat, 1000, 3)
+        labels = label(heatmap)
+        draw_img = self.ipu.draw_labeled_bboxes(img, labels)
+
+        out_img = draw_img
+        return out_img
+
+    # Main pipeline process of this project
+    def pipeline_svc(self, img):
         # convert dtype for uint8 for processing
         img = img.astype(np.uint8)
 
@@ -37,7 +67,6 @@ class Pipeline:
         svc = self.model.get_clf()
         X_scaler = self.model.get_scaler()
         car_windows = []
-        count = 226
         for window in windows:
             cropped_img = img[window[0][1]:window[1][1], window[0][0]:window[1][0]]
             cropped_img = cv2.resize(cropped_img, self.model.image_size)
@@ -59,8 +88,6 @@ class Pipeline:
         self.ipu.apply_threshold(heat, 15, 1)
         labels = label(heatmap)
         draw_img = self.ipu.draw_labeled_bboxes(img, labels)
-
-        # filter out false positive in one frame, not in the next frame
 
         out_img = draw_img
         return out_img
@@ -90,23 +117,29 @@ class Pipeline:
         fpath = 'temp/' + video_file
         if os.path.exists(fpath):
             os.remove(fpath)
-        processed = clip.fl(lambda gf, t: self.pipeline(gf(t)), [])
+        if self.do_svc:
+            processed = clip.fl(lambda gf, t: self.pipeline_svc(gf(t)), [])
+        if self.do_kb:
+            processed = clip.fl(lambda gf, t: self.pipeline_kb(gf(t)), [])
         processed.write_videofile(fpath, audio=False)
 
 
 def main():
     pl = Pipeline()
 
-    do_images = False
-    do_videos = True
+    do_images = True
+    do_videos = False
 
     if do_images:
         images = glob.glob('test_images/*.jpg')
 
         for fname in images:
             image = mpimg.imread(fname)
-            output = pl.pipeline(image)
-            mpimg.imsave(os.path.join('output_images', 'output_' + os.path.basename(fname)), output)
+            if pl.do_svc:
+                output = pl.pipeline_svc(image)
+            if pl.do_kb:
+                output = pl.pipeline_kb(image)
+            mpimg.imsave(os.path.join('output_images', 'output_' + os.path.splitext(os.path.basename(fname))[0] + ".png"), output)
             plt.imshow(output)
             pl.reset()
 
