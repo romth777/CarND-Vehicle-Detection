@@ -23,13 +23,13 @@ class Model:
         self.save_scaler_fname = 'scaler.pkl'
 
         self.image_size = (64, 64)
-        self.color_space = 'YUV'  # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
-        self.orient = 11  # HOG orientations
+        self.color_space = 'YCrCb'  # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
+        self.orient = 14  # HOG orientations
         self.pix_per_cell = 16  # HOG pixels per cell
-        self.cell_per_block = 2  # HOG cells per block
+        self.cell_per_block = 3  # HOG cells per block
         self.hog_channel = "ALL"  # Can be 0, 1, 2, or "ALL"
-        self.spatial_size = (32, 32)  # Spatial binning dimensions
-        self.hist_bins = 32  # Number of histogram bins
+        self.spatial_size = (8, 8)  # Spatial binning dimensions
+        self.hist_bins = 16  # Number of histogram bins
         self.spatial_feat = True  # Spatial features on or off
         self.hist_feat = True  # Histogram features on or off
         self.hog_feat = True  # HOG features on or off

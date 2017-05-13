@@ -224,9 +224,10 @@ class ImageProcessUtils:
         # Return updated heatmap
         return heatmap
 
-    def apply_threshold(self, heatmap, threshold):
+    def apply_threshold(self, heatmap, upper_threshold, lower_threshold):
         # Zero out pixels below the threshold
-        heatmap[heatmap <= threshold] = 0
+        heatmap[heatmap <= lower_threshold] = 0
+        heatmap[heatmap >= upper_threshold] = 0
         # Return thresholded map
         return heatmap
 
