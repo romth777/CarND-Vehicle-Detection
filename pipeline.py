@@ -10,24 +10,24 @@ from scipy.ndimage.measurements import label
 
 import ImageProcessUtils
 import Model
-from KittiBox import annotate
-
+import HeatmapHistory
 
 class Pipeline:
     def __init__(self):
         self.ipu = ImageProcessUtils.ImageProcessUtils()
-        self.do_svc = False
-        self.do_kb = True
+        self.do_svc = True
+        self.do_kb = False
         self.model = None
         self.annotate = None
         if self.do_svc:
             self.model = Model.Model()
         if self.do_kb:
             self.annotate = annotate.annotate()
+        self.heatmap_history = HeatmapHistory.HeatmapHistory()
 
     # reset function clear the data of previous analysis
     def reset(self):
-        pass
+        self.heatmap_history.reset()
 
     # Main pipeline process of this project
     def pipeline_kb(self, img):
@@ -70,7 +70,6 @@ class Pipeline:
         for window in windows:
             cropped_img = img[window[0][1]:window[1][1], window[0][0]:window[1][0]]
             cropped_img = cv2.resize(cropped_img, self.model.image_size)
-            cropped_img = cropped_img.astype(np.float32) / 255
             features = self.ipu.single_img_features(cropped_img, color_space=self.model.color_space, spatial_size=self.model.spatial_size,
                                 hist_bins=self.model.hist_bins, orient=self.model.orient,
                                 pix_per_cell=self.model.pix_per_cell, cell_per_block=self.model.cell_per_block, hog_channel=self.model.hog_channel,
@@ -80,13 +79,18 @@ class Pipeline:
             if pred == 1:
                 car_windows.append(window)
 
-        #windowed_img = self.ipu.draw_boxes(img, car_windows, color=(0, 0, 255), thick=6)
+        # windowed_img = self.ipu.draw_boxes(img, car_windows, color=(0, 0, 255), thick=6)
+        # plt.imshow(windowed_img)
+        # plt.show()
 
         # stitch windows to centeroid and filter out false positive with heatmap
         heatmap = np.zeros_like(img[:, :, 0])
         heat = self.ipu.add_heat(heatmap, car_windows)
-        self.ipu.apply_threshold(heat, 15, 1)
-        labels = label(heatmap)
+        heat_thresh = self.ipu.apply_threshold(heat, 100, 6)
+        heat_mean = self.heatmap_history.update(heat_thresh)
+        #plt.imshow(heat_mean, cmap='hot')
+        #plt.show()
+        labels = label(heat_mean)
         draw_img = self.ipu.draw_labeled_bboxes(img, labels)
 
         out_img = draw_img
@@ -127,13 +131,17 @@ class Pipeline:
 def main():
     pl = Pipeline()
 
-    do_images = True
-    do_videos = False
+    do_images = False
+    do_videos = True
+
+    if pl.do_kb:
+        from KittiBox import annotate
 
     if do_images:
         images = glob.glob('test_images/*.jpg')
 
         for fname in images:
+            print(fname)
             image = mpimg.imread(fname)
             if pl.do_svc:
                 output = pl.pipeline_svc(image)
@@ -145,6 +153,8 @@ def main():
 
     if do_videos:
         video_files = ['project_video.mp4']
+        #video_files = ['shorter_project_video.mp4']
+        #video_files = ['oneshot_project_video.mp4']
         for video_file in video_files:
             pl.run_pipeline(video_file)
             pl.reset()

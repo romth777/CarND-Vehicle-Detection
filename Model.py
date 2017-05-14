@@ -23,12 +23,12 @@ class Model:
         self.save_scaler_fname = 'scaler.pkl'
 
         self.image_size = (64, 64)
-        self.color_space = 'YCrCb'  # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
-        self.orient = 14  # HOG orientations
-        self.pix_per_cell = 16  # HOG pixels per cell
-        self.cell_per_block = 3  # HOG cells per block
+        self.color_space = 'YUV'  # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
+        self.orient = 10  # HOG orientations
+        self.pix_per_cell = 8  # HOG pixels per cell
+        self.cell_per_block = 4  # HOG cells per block
         self.hog_channel = "ALL"  # Can be 0, 1, 2, or "ALL"
-        self.spatial_size = (8, 8)  # Spatial binning dimensions
+        self.spatial_size = (16, 16)  # Spatial binning dimensions
         self.hist_bins = 16  # Number of histogram bins
         self.spatial_feat = True  # Spatial features on or off
         self.hist_feat = True  # Histogram features on or off
@@ -47,7 +47,6 @@ class Model:
         car_features = []
         for car_fname in cars:
             car = mpimg.imread(car_fname)
-            car = car.astype(np.float32) / 255
             car_features.append(ipu.single_img_features(car, color_space=self.color_space,
                                             spatial_size=self.spatial_size, hist_bins=self.hist_bins,
                                             orient=self.orient, pix_per_cell=self.pix_per_cell,
@@ -58,7 +57,6 @@ class Model:
         notcar_features = []
         for notcar_fname in notcars:
             notcar = mpimg.imread(notcar_fname)
-            notcar = notcar.astype(np.float32) / 255
             notcar_features.append(ipu.single_img_features(notcar, color_space=self.color_space,
                                                spatial_size=self.spatial_size, hist_bins=self.hist_bins,
                                                orient=self.orient, pix_per_cell=self.pix_per_cell,
@@ -118,12 +116,10 @@ class Model:
     def get_scaler(self):
         return joblib.load(self.save_scaler_fname)
 
-
-if __name__ == '__main__':
+def run(model):
     do_train = True
     do_predict = False
 
-    model = Model()
     if do_train:
         model.train()
 
@@ -186,3 +182,14 @@ if __name__ == '__main__':
         print('For these', n_predict, 'labels: ', y_test[0:n_predict])
         t2 = time.time()
         print(round(t2 - t, 5), 'Seconds to predict', n_predict, 'labels with SVC')
+
+def search():
+    for color in ["HLS", "YUV", "YCrCb"]:
+        model = Model()
+        model.color_space = color
+        print("Run model with " + color)
+        run(model)
+
+if __name__ == '__main__':
+    model = Model()
+    run(model)

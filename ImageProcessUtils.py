@@ -12,9 +12,7 @@ class ImageProcessUtils:
     def __init__(self):
         # image size for this project, this value must change in the other image shape
         self.img_size = (1280, 720)
-        self.hog1 = None
-        self.hog2 = None
-        self.hog3 = None
+        self.hog = []
 
     # Define a function to compute binned color features
     def bin_spatial(self, img, size=(32, 32)):
@@ -58,10 +56,21 @@ class ImageProcessUtils:
                            visualise=vis, feature_vector=feature_vec)
             return features
 
+    def convert_color(img, conv='RGB2YCrCb'):
+        if conv == 'RGB2YCrCb':
+            return cv2.cvtColor(img, cv2.COLOR_RGB2YCrCb)
+        if conv == 'BGR2YCrCb':
+            return cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+        if conv == 'RGB2LUV':
+            return cv2.cvtColor(img, cv2.COLOR_RGB2LUV)
+
     def single_img_features(self, img, color_space='RGB', spatial_size=(32, 32),
                             hist_bins=32, orient=9,
                             pix_per_cell=8, cell_per_block=2, hog_channel="ALL",
                             spatial_feat=True, hist_feat=True, hog_feat=True):
+        # 0) Make image data 0.0 - 1.0
+        img = img.astype(np.float32) / 255
+
         # 1) Define an empty list to receive features
         img_features = []
         # 2) Apply color conversion if other than 'RGB'
@@ -104,6 +113,75 @@ class ImageProcessUtils:
 
         # 9) Return concatenated array of features
         return np.concatenate(img_features)
+
+    # Define a single function that can extract features using hog sub-sampling and make predictions
+    def find_cars(self, img, ystart, ystop, scale, svc, X_scaler, orient, pix_per_cell, cell_per_block, spatial_size,
+                  hist_bins):
+
+        draw_img = np.copy(img)
+        img = img.astype(np.float32) / 255
+
+        img_tosearch = img[ystart:ystop, :, :]
+        ctrans_tosearch = self.convert_color(img_tosearch, conv='RGB2YCrCb')
+        if scale != 1:
+            imshape = ctrans_tosearch.shape
+            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / scale), np.int(imshape[0] / scale)))
+
+        ch1 = ctrans_tosearch[:, :, 0]
+        ch2 = ctrans_tosearch[:, :, 1]
+        ch3 = ctrans_tosearch[:, :, 2]
+
+        # Define blocks and steps as above
+        nxblocks = (ch1.shape[1] // pix_per_cell) - cell_per_block + 1
+        nyblocks = (ch1.shape[0] // pix_per_cell) - cell_per_block + 1
+        nfeat_per_block = orient * cell_per_block ** 2
+
+        # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
+        window = 64
+        nblocks_per_window = (window // pix_per_cell) - cell_per_block + 1
+        cells_per_step = 2  # Instead of overlap, define how many cells to step
+        nxsteps = (nxblocks - nblocks_per_window) // cells_per_step
+        nysteps = (nyblocks - nblocks_per_window) // cells_per_step
+
+        # Compute individual channel HOG features for the entire image
+        hog1 = self.get_hog_features(ch1, orient, pix_per_cell, cell_per_block, feature_vec=False)
+        hog2 = self.get_hog_features(ch2, orient, pix_per_cell, cell_per_block, feature_vec=False)
+        hog3 = self.get_hog_features(ch3, orient, pix_per_cell, cell_per_block, feature_vec=False)
+
+        for xb in range(nxsteps):
+            for yb in range(nysteps):
+                ypos = yb * cells_per_step
+                xpos = xb * cells_per_step
+                # Extract HOG for this patch
+                hog_feat1 = hog1[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+                hog_feat2 = hog2[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+                hog_feat3 = hog3[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
+                hog_features = np.hstack((hog_feat1, hog_feat2, hog_feat3))
+
+                xleft = xpos * pix_per_cell
+                ytop = ypos * pix_per_cell
+
+                # Extract the image patch
+                subimg = cv2.resize(ctrans_tosearch[ytop:ytop + window, xleft:xleft + window], (64, 64))
+
+                # Get color features
+                spatial_features = self.bin_spatial(subimg, size=spatial_size)
+                hist_features = self.color_hist(subimg, nbins=hist_bins)
+
+                # Scale features and make a prediction
+                test_features = X_scaler.transform(
+                    np.hstack((spatial_features, hist_features, hog_features)).reshape(1, -1))
+                # test_features = X_scaler.transform(np.hstack((shape_feat, hist_feat)).reshape(1, -1))
+                test_prediction = svc.predict(test_features)
+
+                if test_prediction == 1:
+                    xbox_left = np.int(xleft * scale)
+                    ytop_draw = np.int(ytop * scale)
+                    win_draw = np.int(window * scale)
+                    cv2.rectangle(draw_img, (xbox_left, ytop_draw + ystart),
+                                  (xbox_left + win_draw, ytop_draw + win_draw + ystart), (0, 0, 255), 6)
+
+        return draw_img
 
     # Define a function to extract features from a list of images
     # Have this function call bin_spatial() and color_hist()
@@ -245,3 +323,18 @@ class ImageProcessUtils:
             cv2.rectangle(img, bbox[0], bbox[1], (0, 0, 255), 6)
         # Return the image
         return img
+
+if __name__ == '__main__':
+    ipu = ImageProcessUtils()
+
+    cars = glob.glob(os.path.join("training_images", "vehicles", "**", "*.png"), recursive=True)
+    notcars = glob.glob(os.path.join("training_images", "non-vehicles", "**", "*.png"), recursive=True)
+
+    car = mpimg.imread(cars[0])
+    print(car[:,:,1].shape)
+    gray = cv2.cvtColor(car, cv2.COLOR_RGB2GRAY)
+    ch = car[:,:,1]
+    orient = 9  # HOG orientations
+    pix_per_cell = 8  # HOG pixels per cell
+    cell_per_block = 2  # HOG cells per block
+    feature, image = ipu.get_hog_features(ch, orient=orient, pix_per_cell=pix_per_cell, cell_per_block=cell_per_block, vis=True)
